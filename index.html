@@ -112,44 +112,43 @@ body { font-family: -apple-system, "Hiragino Sans", sans-serif; background: #0f1
 </div>
 
 <script>
+// ▼ GASのWebアプリURLをここに貼り付けてください
+var GAS_URL = 'https://script.google.com/macros/s/AKfycbx6K2UqcMC1oPpsshhPDNwiNN0bKfmgeVAkCm0O396deS-WTbOVzjOcRnZbFMzDyJmQVA/exec';
+
 var pw = '';
 var stream = null;
 var timer = null;
 var busy = false;
 
-// ログインボタン
 document.getElementById('loginBtn').addEventListener('click', function() {
   doLogin();
 });
 
-// Enterキー
 document.getElementById('pwInput').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') doLogin();
 });
 
-// カメラボタン
 document.getElementById('scanBtn').addEventListener('click', function() {
   startCamera();
 });
 
 function doLogin() {
   var input = document.getElementById('pwInput').value;
+  if (!input) {
+    document.getElementById('loginErr').textContent = 'パスワードを入力してください';
+    return;
+  }
   document.getElementById('loginErr').textContent = '確認中...';
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (res) {
-        pw = input;
-        document.getElementById('loginScreen').style.display = 'none';
-        document.getElementById('mainScreen').style.display = 'block';
-        updateBadge();
-      } else {
-        document.getElementById('loginErr').textContent = 'パスワードが正しくありません';
-      }
-    })
-    .withFailureHandler(function(err) {
-      document.getElementById('loginErr').textContent = 'エラー: ' + err.message;
-    })
-    .getSummary(input);
+  callGAS('summary', { password: input }, function(res) {
+    if (res && res.success) {
+      pw = input;
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('mainScreen').style.display = 'block';
+      updateBadge(res);
+    } else {
+      document.getElementById('loginErr').textContent = 'パスワードが正しくありません';
+    }
+  });
 }
 
 function startCamera() {
@@ -190,12 +189,9 @@ function onDetect(text) {
   stopCamera();
   document.getElementById('scanArea').style.display = 'none';
   document.getElementById('loading').style.display = 'block';
-  google.script.run
-    .withSuccessHandler(showResult)
-    .withFailureHandler(function(err) {
-      showResult({ success: false, message: 'エラー: ' + err.message });
-    })
-    .processCheckIn(text, pw);
+  callGAS('checkIn', { password: pw, id: text }, function(res) {
+    showResult(res);
+  });
 }
 
 function showResult(r) {
@@ -203,27 +199,27 @@ function showResult(r) {
   var card = document.getElementById('resultCard');
   card.style.display = 'block';
   card.className = '';
-  if (r.success) {
+  if (r && r.success) {
     card.classList.add('ok');
     document.getElementById('rIcon').textContent = '✅';
     document.getElementById('rMsg').textContent = 'チェックイン完了';
-  } else if (r.duplicate) {
+  } else if (r && r.duplicate) {
     card.classList.add('dup');
     document.getElementById('rIcon').textContent = '⚠️';
     document.getElementById('rMsg').textContent = '既にチェック済みです';
   } else {
     card.classList.add('err');
     document.getElementById('rIcon').textContent = '❌';
-    document.getElementById('rMsg').textContent = r.message || 'エラーが発生しました';
+    document.getElementById('rMsg').textContent = (r && r.message) ? r.message : 'エラーが発生しました';
   }
-  document.getElementById('rName').textContent = r.name || '';
-  document.getElementById('rKana').textContent = r.kana || '';
+  document.getElementById('rName').textContent = (r && r.name) ? r.name : '';
+  document.getElementById('rKana').textContent = (r && r.kana) ? r.kana : '';
   var d = '';
-  if (r.company)    d += '<span>所属保険会社</span>' + r.company + '<br>';
-  if (r.membership) d += '<span>会員区分</span>' + r.membership + '<br>';
-  if (r.checkedAt)  d += '<span>チェック時刻</span>' + r.checkedAt;
+  if (r && r.company)    d += '<span>所属保険会社</span>' + r.company + '<br>';
+  if (r && r.membership) d += '<span>会員区分</span>' + r.membership + '<br>';
+  if (r && r.checkedAt)  d += '<span>チェック時刻</span>' + r.checkedAt;
   document.getElementById('rDetail').innerHTML = d;
-  updateBadge();
+  callGAS('summary', { password: pw }, function(res) { updateBadge(res); });
 }
 
 function resetScanner() {
@@ -241,14 +237,33 @@ function stopCamera() {
   }
 }
 
-function updateBadge() {
-  google.script.run
-    .withSuccessHandler(function(data) {
-      if (data) {
-        document.getElementById('badge').textContent = '来場: ' + data.arrived + ' / ' + data.total;
-      }
-    })
-    .getSummary(pw);
+function updateBadge(data) {
+  if (data) {
+    document.getElementById('badge').textContent = '来場: ' + data.arrived + ' / ' + data.total;
+  }
+}
+
+// JSONP形式でGASのAPIを呼び出す
+function callGAS(action, params, callback) {
+  var cbName = 'cb_' + Date.now();
+  var url = GAS_URL + '?action=' + action + '&callback=' + cbName;
+  for (var key in params) {
+    url += '&' + key + '=' + encodeURIComponent(params[key]);
+  }
+  window[cbName] = function(data) {
+    delete window[cbName];
+    document.head.removeChild(document.getElementById(cbName));
+    callback(data);
+  };
+  var script = document.createElement('script');
+  script.id = cbName;
+  script.src = url;
+  script.onerror = function() {
+    delete window[cbName];
+    document.head.removeChild(script);
+    callback({ success: false, message: '通信エラーが発生しました' });
+  };
+  document.head.appendChild(script);
 }
 </script>
 </body>
