@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>カメラテスト</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, sans-serif; background: #0f172a; color: #f1f5f9; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; }
+h1 { font-size: 20px; margin-bottom: 24px; }
+#videoWrap { width: 100%; max-width: 360px; border-radius: 16px; overflow: hidden; display: none; border: 2px solid #334155; margin-bottom: 16px; }
+video { width: 100%; display: block; }
+.btn { width: 100%; max-width: 320px; padding: 16px; background: #3b82f6; color: white; border: none; border-radius: 12px; font-size: 18px; font-weight: bold; cursor: pointer; margin-bottom: 16px; }
+#msg { color: #94a3b8; font-size: 14px; text-align: center; }
+</style>
+</head>
+<body>
+<h1>カメラ起動テスト</h1>
+<div id="videoWrap"><video id="video" autoplay playsinline muted></video></div>
+<button class="btn" onclick="startCamera()">カメラを起動</button>
+<p id="msg">ボタンを押してカメラが起動するか確認してください</p>
+<script>
+function startCamera() {
+  document.getElementById('msg').textContent = '起動中...';
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    .then(function(stream) {
+      var v = document.getElementById('video');
+      v.srcObject = stream;
+      document.getElementById('videoWrap').style.display = 'block';
+      document.getElementById('msg').textContent = 'カメラが起動しました！';
+    })
+    .catch(function(err) {
+      document.getElementById('msg').textContent = 'エラー: ' + err.message;
+    });
+}
+</script>
+</body>
+</html>
