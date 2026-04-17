@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>受付スキャナー</title>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, "Hiragino Sans", sans-serif; background: #0f172a; color: #f1f5f9; min-height: 100vh; }
+
+#loginScreen {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; min-height: 100vh; padding: 24px;
+}
+#loginScreen h1 { font-size: 24px; margin-bottom: 8px; }
+#loginScreen p { color: #94a3b8; font-size: 14px; margin-bottom: 32px; }
+.input-box {
+  width: 100%; max-width: 320px; padding: 14px 16px;
+  border-radius: 12px; border: 1px solid #334155;
+  background: #1e293b; color: #f1f5f9; font-size: 16px;
+  margin-bottom: 16px;
+}
+.btn-blue {
+  display: block; width: 100%; max-width: 320px; padding: 16px;
+  background: #3b82f6; color: white; border: none;
+  border-radius: 12px; font-size: 18px; font-weight: bold; cursor: pointer;
+}
+.btn-blue:active { background: #2563eb; }
+
+#mainScreen { display: none; }
+.header {
+  background: #1e293b; padding: 16px 20px;
+  display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 1px solid #334155;
+}
+.header h1 { font-size: 17px; }
+.badge {
+  background: #1e3a5f; color: #93c5fd;
+  padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: bold;
+}
+
+#scanArea {
+  padding: 24px 16px; display: flex;
+  flex-direction: column; align-items: center; gap: 16px;
+}
+#videoWrap {
+  width: 100%; max-width: 360px; border-radius: 16px;
+  overflow: hidden; display: none; border: 2px solid #334155;
+}
+#video { width: 100%; display: block; }
+#canvas { display: none; }
+.hint { color: #94a3b8; font-size: 13px; text-align: center; }
+
+#loading { display: none; text-align: center; padding: 40px; color: #94a3b8; }
+.spinner {
+  width: 40px; height: 40px; border: 4px solid #334155;
+  border-top-color: #3b82f6; border-radius: 50%;
+  animation: spin 0.8s linear infinite; margin: 0 auto 16px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#resultCard { margin: 16px; border-radius: 16px; padding: 20px; display: none; }
+.ok  { background: #14532d; border: 2px solid #16a34a; }
+.dup { background: #7c2d12; border: 2px solid #ea580c; }
+.err { background: #450a0a; border: 2px solid #dc2626; }
+.r-icon { font-size: 40px; text-align: center; margin-bottom: 12px; }
+.r-msg  { font-size: 18px; font-weight: bold; text-align: center; margin-bottom: 16px; }
+.r-name { font-size: 26px; font-weight: bold; text-align: center; margin-bottom: 4px; }
+.r-kana { font-size: 13px; color: #94a3b8; text-align: center; margin-bottom: 16px; }
+.r-detail { background: rgba(0,0,0,0.2); border-radius: 8px; padding: 12px; font-size: 14px; line-height: 2; }
+.r-detail span { color: #94a3b8; margin-right: 8px; }
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <h1>🎫 受付スキャナー</h1>
+  <p>スタッフ用パスワードを入力してください</p>
+  <input class="input-box" type="password" id="pwInput" placeholder="パスワード">
+  <button class="btn-blue" id="loginBtn">ログイン</button>
+  <p id="loginErr" style="color:#f87171;margin-top:12px;font-size:14px;"></p>
+</div>
+
+<div id="mainScreen">
+  <div class="header">
+    <h1>📷 QRスキャン受付</h1>
+    <div class="badge" id="badge">来場: -/-</div>
+  </div>
+
+  <div id="scanArea">
+    <div id="videoWrap">
+      <video id="video" autoplay playsinline muted></video>
+    </div>
+    <canvas id="canvas"></canvas>
+    <button class="btn-blue" id="scanBtn" style="max-width:320px;width:100%;">
+      カメラを起動してスキャン
+    </button>
+    <p class="hint">ボタンを押してカメラを起動し、QRコードに向けてください</p>
+  </div>
+
+  <div id="loading"><div class="spinner"></div>照合中...</div>
+
+  <div id="resultCard">
+    <div class="r-icon" id="rIcon"></div>
+    <div class="r-msg"  id="rMsg"></div>
+    <div class="r-name" id="rName"></div>
+    <div class="r-kana" id="rKana"></div>
+    <div class="r-detail" id="rDetail"></div>
+    <button class="btn-blue" style="margin-top:16px;" onclick="resetScanner()">次の方をスキャン</button>
+  </div>
+</div>
+
+<script>
+var pw = '';
+var stream = null;
+var timer = null;
+var busy = false;
+
+// ログインボタン
+document.getElementById('loginBtn').addEventListener('click', function() {
+  doLogin();
+});
+
+// Enterキー
+document.getElementById('pwInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
+
+// カメラボタン
+document.getElementById('scanBtn').addEventListener('click', function() {
+  startCamera();
+});
+
+function doLogin() {
+  var input = document.getElementById('pwInput').value;
+  document.getElementById('loginErr').textContent = '確認中...';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res) {
+        pw = input;
+        document.getElementById('loginScreen').style.display = 'none';
+        document.getElementById('mainScreen').style.display = 'block';
+        updateBadge();
+      } else {
+        document.getElementById('loginErr').textContent = 'パスワードが正しくありません';
+      }
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('loginErr').textContent = 'エラー: ' + err.message;
+    })
+    .getSummary(input);
+}
+
+function startCamera() {
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    .then(function(s) {
+      stream = s;
+      var v = document.getElementById('video');
+      v.srcObject = s;
+      document.getElementById('videoWrap').style.display = 'block';
+      document.getElementById('scanBtn').style.display = 'none';
+      timer = setInterval(scanFrame, 300);
+    })
+    .catch(function(err) {
+      alert('カメラを起動できませんでした。\nSafariの設定でカメラを許可してください。\n' + err.message);
+    });
+}
+
+function scanFrame() {
+  if (busy) return;
+  var v = document.getElementById('video');
+  if (v.readyState !== v.HAVE_ENOUGH_DATA) return;
+  var c = document.getElementById('canvas');
+  c.width = v.videoWidth;
+  c.height = v.videoHeight;
+  var ctx = c.getContext('2d');
+  ctx.drawImage(v, 0, 0);
+  var img = ctx.getImageData(0, 0, c.width, c.height);
+  var code = jsQR(img.data, img.width, img.height);
+  if (code) {
+    onDetect(code.data);
+  }
+}
+
+function onDetect(text) {
+  if (busy) return;
+  busy = true;
+  clearInterval(timer);
+  stopCamera();
+  document.getElementById('scanArea').style.display = 'none';
+  document.getElementById('loading').style.display = 'block';
+  google.script.run
+    .withSuccessHandler(showResult)
+    .withFailureHandler(function(err) {
+      showResult({ success: false, message: 'エラー: ' + err.message });
+    })
+    .processCheckIn(text, pw);
+}
+
+function showResult(r) {
+  document.getElementById('loading').style.display = 'none';
+  var card = document.getElementById('resultCard');
+  card.style.display = 'block';
+  card.className = '';
+  if (r.success) {
+    card.classList.add('ok');
+    document.getElementById('rIcon').textContent = '✅';
+    document.getElementById('rMsg').textContent = 'チェックイン完了';
+  } else if (r.duplicate) {
+    card.classList.add('dup');
+    document.getElementById('rIcon').textContent = '⚠️';
+    document.getElementById('rMsg').textContent = '既にチェック済みです';
+  } else {
+    card.classList.add('err');
+    document.getElementById('rIcon').textContent = '❌';
+    document.getElementById('rMsg').textContent = r.message || 'エラーが発生しました';
+  }
+  document.getElementById('rName').textContent = r.name || '';
+  document.getElementById('rKana').textContent = r.kana || '';
+  var d = '';
+  if (r.company)    d += '<span>所属保険会社</span>' + r.company + '<br>';
+  if (r.membership) d += '<span>会員区分</span>' + r.membership + '<br>';
+  if (r.checkedAt)  d += '<span>チェック時刻</span>' + r.checkedAt;
+  document.getElementById('rDetail').innerHTML = d;
+  updateBadge();
+}
+
+function resetScanner() {
+  busy = false;
+  document.getElementById('resultCard').style.display = 'none';
+  document.getElementById('scanArea').style.display = 'flex';
+  document.getElementById('scanBtn').style.display = 'block';
+  document.getElementById('videoWrap').style.display = 'none';
+}
+
+function stopCamera() {
+  if (stream) {
+    stream.getTracks().forEach(function(t) { t.stop(); });
+    stream = null;
+  }
+}
+
+function updateBadge() {
+  google.script.run
+    .withSuccessHandler(function(data) {
+      if (data) {
+        document.getElementById('badge').textContent = '来場: ' + data.arrived + ' / ' + data.total;
+      }
+    })
+    .getSummary(pw);
+}
+</script>
+</body>
+</html>
