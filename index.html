@@ -3,32 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>受付スキャナー</title>
+<title>受付スキャナー | 2026 SUMMER FESTIVAL</title>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, "Hiragino Sans", sans-serif; background: #0f172a; color: #f1f5f9; min-height: 100vh; }
 
-#loginScreen {
-  display: flex; flex-direction: column; align-items: center;
-  justify-content: center; min-height: 100vh; padding: 24px;
-}
-#loginScreen h1 { font-size: 24px; margin-bottom: 8px; }
-#loginScreen p { color: #94a3b8; font-size: 14px; margin-bottom: 32px; }
-.input-box {
-  width: 100%; max-width: 320px; padding: 14px 16px;
-  border-radius: 12px; border: 1px solid #334155;
-  background: #1e293b; color: #f1f5f9; font-size: 16px;
-  margin-bottom: 16px;
-}
-.btn-blue {
-  display: block; width: 100%; max-width: 320px; padding: 16px;
-  background: #3b82f6; color: white; border: none;
-  border-radius: 12px; font-size: 18px; font-weight: bold; cursor: pointer;
-}
-.btn-blue:active { background: #2563eb; }
-
-#mainScreen { display: none; }
 .header {
   background: #1e293b; padding: 16px 20px;
   display: flex; justify-content: space-between; align-items: center;
@@ -52,6 +32,13 @@ body { font-family: -apple-system, "Hiragino Sans", sans-serif; background: #0f1
 #canvas { display: none; }
 .hint { color: #94a3b8; font-size: 13px; text-align: center; }
 
+.btn-blue {
+  display: block; width: 100%; max-width: 320px; padding: 16px;
+  background: #3b82f6; color: white; border: none;
+  border-radius: 12px; font-size: 18px; font-weight: bold; cursor: pointer;
+}
+.btn-blue:active { background: #2563eb; }
+
 #loading { display: none; text-align: center; padding: 40px; color: #94a3b8; }
 .spinner {
   width: 40px; height: 40px; border: 4px solid #334155;
@@ -74,82 +61,46 @@ body { font-family: -apple-system, "Hiragino Sans", sans-serif; background: #0f1
 </head>
 <body>
 
-<div id="loginScreen">
-  <h1>🎫 受付スキャナー</h1>
-  <p>スタッフ用パスワードを入力してください</p>
-  <input class="input-box" type="password" id="pwInput" placeholder="パスワード">
-  <button class="btn-blue" id="loginBtn">ログイン</button>
-  <p id="loginErr" style="color:#f87171;margin-top:12px;font-size:14px;"></p>
+<div class="header">
+  <h1>📷 QRスキャン受付</h1>
+  <div class="badge" id="badge">来場: -/-</div>
 </div>
 
-<div id="mainScreen">
-  <div class="header">
-    <h1>📷 QRスキャン受付</h1>
-    <div class="badge" id="badge">来場: -/-</div>
+<div id="scanArea">
+  <div id="videoWrap">
+    <video id="video" autoplay playsinline muted></video>
   </div>
+  <canvas id="canvas"></canvas>
+  <button class="btn-blue" id="scanBtn">カメラを起動してスキャン</button>
+  <p class="hint">ボタンを押してカメラを起動し、QRコードに向けてください</p>
+</div>
 
-  <div id="scanArea">
-    <div id="videoWrap">
-      <video id="video" autoplay playsinline muted></video>
-    </div>
-    <canvas id="canvas"></canvas>
-    <button class="btn-blue" id="scanBtn" style="max-width:320px;width:100%;">
-      カメラを起動してスキャン
-    </button>
-    <p class="hint">ボタンを押してカメラを起動し、QRコードに向けてください</p>
-  </div>
+<div id="loading"><div class="spinner"></div>照合中...</div>
 
-  <div id="loading"><div class="spinner"></div>照合中...</div>
-
-  <div id="resultCard">
-    <div class="r-icon" id="rIcon"></div>
-    <div class="r-msg"  id="rMsg"></div>
-    <div class="r-name" id="rName"></div>
-    <div class="r-kana" id="rKana"></div>
-    <div class="r-detail" id="rDetail"></div>
-    <button class="btn-blue" style="margin-top:16px;" onclick="resetScanner()">次の方をスキャン</button>
-  </div>
+<div id="resultCard">
+  <div class="r-icon" id="rIcon"></div>
+  <div class="r-msg"  id="rMsg"></div>
+  <div class="r-name" id="rName"></div>
+  <div class="r-kana" id="rKana"></div>
+  <div class="r-detail" id="rDetail"></div>
+  <button class="btn-blue" style="margin-top:16px;" onclick="resetScanner()">次の方をスキャン</button>
 </div>
 
 <script>
-// ▼ GASのWebアプリURLをここに貼り付けてください
-var GAS_URL = 'https://script.google.com/macros/s/AKfycbx6K2UqcMC1oPpsshhPDNwiNN0bKfmgeVAkCm0O396deS-WTbOVzjOcRnZbFMzDyJmQVA/exec';
+var GAS_URL = 'https://script.google.com/macros/s/AKfycbwPUfAydyPb7Nj6FgT3MtxCqo_miBTpCvvvGq-SOyC9H_QF50hE6YuCgiOMbRHnIMhV/exec';
 
-var pw = '';
 var stream = null;
 var timer = null;
 var busy = false;
-
-document.getElementById('loginBtn').addEventListener('click', function() {
-  doLogin();
-});
-
-document.getElementById('pwInput').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') doLogin();
-});
 
 document.getElementById('scanBtn').addEventListener('click', function() {
   startCamera();
 });
 
-function doLogin() {
-  var input = document.getElementById('pwInput').value;
-  if (!input) {
-    document.getElementById('loginErr').textContent = 'パスワードを入力してください';
-    return;
-  }
-  document.getElementById('loginErr').textContent = '確認中...';
-  callGAS('summary', { password: input }, function(res) {
-    if (res && res.success) {
-      pw = input;
-      document.getElementById('loginScreen').style.display = 'none';
-      document.getElementById('mainScreen').style.display = 'block';
-      updateBadge(res);
-    } else {
-      document.getElementById('loginErr').textContent = 'パスワードが正しくありません';
-    }
-  });
-}
+// 起動時にサマリーを取得
+window.onload = function() {
+  updateBadge();
+};
 
 function startCamera() {
   navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
@@ -189,7 +140,7 @@ function onDetect(text) {
   stopCamera();
   document.getElementById('scanArea').style.display = 'none';
   document.getElementById('loading').style.display = 'block';
-  callGAS('checkIn', { password: pw, id: text }, function(res) {
+  callGAS('checkIn', { id: text }, function(res) {
     showResult(res);
   });
 }
@@ -219,7 +170,7 @@ function showResult(r) {
   if (r && r.membership) d += '<span>会員区分</span>' + r.membership + '<br>';
   if (r && r.checkedAt)  d += '<span>チェック時刻</span>' + r.checkedAt;
   document.getElementById('rDetail').innerHTML = d;
-  callGAS('summary', { password: pw }, function(res) { updateBadge(res); });
+  updateBadge();
 }
 
 function resetScanner() {
@@ -237,13 +188,14 @@ function stopCamera() {
   }
 }
 
-function updateBadge(data) {
-  if (data) {
-    document.getElementById('badge').textContent = '来場: ' + data.arrived + ' / ' + data.total;
-  }
+function updateBadge() {
+  callGAS('summary', {}, function(data) {
+    if (data && data.success) {
+      document.getElementById('badge').textContent = '来場: ' + data.arrived + ' / ' + data.total;
+    }
+  });
 }
 
-// JSONP形式でGASのAPIを呼び出す
 function callGAS(action, params, callback) {
   var cbName = 'cb_' + Date.now();
   var url = GAS_URL + '?action=' + action + '&callback=' + cbName;
@@ -252,16 +204,17 @@ function callGAS(action, params, callback) {
   }
   window[cbName] = function(data) {
     delete window[cbName];
-    document.head.removeChild(document.getElementById(cbName));
-    callback(data);
+    var el = document.getElementById(cbName);
+    if (el) document.head.removeChild(el);
+    if (callback) callback(data);
   };
   var script = document.createElement('script');
   script.id = cbName;
   script.src = url;
   script.onerror = function() {
     delete window[cbName];
-    document.head.removeChild(script);
-    callback({ success: false, message: '通信エラーが発生しました' });
+    if (document.getElementById(cbName)) document.head.removeChild(script);
+    if (callback) callback({ success: false, message: '通信エラーが発生しました' });
   };
   document.head.appendChild(script);
 }
